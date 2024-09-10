@@ -1,6 +1,7 @@
 package com.waric0.credentialmanagerdemoapp
 
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -19,13 +20,24 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalAutofill
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.credentials.*
+import androidx.credentials.exceptions.CreateCredentialException
+import androidx.credentials.exceptions.GetCredentialException
 import com.waric0.credentialmanagerdemoapp.ui.theme.CredentialManagerDemoAppTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val credentialManager = CredentialManager.create(this)
+        val getPasswordOption = GetPasswordOption()
+        val getCredRequest = GetCredentialRequest(
+            listOf(getPasswordOption)
+        )
+
         enableEdgeToEdge()
         setContent {
             CredentialManagerDemoAppTheme {
@@ -37,11 +49,76 @@ class MainActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        AutofillUsername()
+                        val context = LocalContext.current
+                        val coroutineScope = rememberCoroutineScope()
+                        var username by remember { mutableStateOf("") }
+                        var password by remember { mutableStateOf("") }
+                        AutofillUsername(
+                            onFocused = {
+                                coroutineScope.launch {
+                                    try {
+                                        val result = credentialManager.getCredential(
+                                            // Use an activity-based context to avoid undefined system UI
+                                            // launching behavior.
+                                            context = context,
+                                            request = getCredRequest
+                                        )
+                                        when (val credential = result.credential) {
+                                            is PasswordCredential -> {
+                                                val username = credential.id
+                                                val password = credential.password
+                                                Log.d(
+                                                    "",
+                                                    "username : $username / password : $password"
+                                                )
+                                            }
+                                        }
+                                    } catch (e: GetCredentialException) {
+                                        Log.e(
+                                            "",
+                                            "",
+                                            e
+                                        )
+                                    }
+                                }
+                            },
+                            onValueChange = {
+                                username = it
+                            }
+                        )
                         Spacer(modifier = Modifier.height(20.dp))
-                        AutofillPassword()
+                        AutofillPassword(
+                            onValueChange = {
+                                password = it
+                            }
+                        )
                         Spacer(modifier = Modifier.height(20.dp))
-                        Button(onClick = { }) {
+                        Button(
+                            onClick = {
+                                val createPasswordRequest =
+                                    CreatePasswordRequest(id = username, password = password)
+
+                                coroutineScope.launch {
+                                    try {
+                                        val result =
+                                            credentialManager.createCredential(
+                                                context,
+                                                createPasswordRequest
+                                            )
+                                        Log.d(
+                                            "",
+                                            "username : $username / password : $password"
+                                        )
+                                    } catch (e: CreateCredentialException) {
+                                        Log.e(
+                                            "",
+                                            "",
+                                            e
+                                        )
+                                    }
+                                }
+                            }
+                        ) {
                             Text("Login")
                         }
                     }
@@ -53,7 +130,10 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun AutofillUsername() {
+fun AutofillUsername(
+    onFocused: () -> Unit,
+    onValueChange: (String) -> Unit
+) {
     var username by remember { mutableStateOf("") }
     val autoFillNode =
         AutofillNode(autofillTypes = listOf(AutofillType.Username), onFill = { username = it })
@@ -66,12 +146,16 @@ fun AutofillUsername() {
             .onFocusChanged {
                 if (it.isFocused) {
                     autofill?.requestAutofillForNode(autoFillNode)
+                    onFocused()
                 } else {
                     autofill?.cancelAutofillForNode(autoFillNode)
                 }
             },
         value = username,
-        onValueChange = { username = it },
+        onValueChange = {
+            username = it
+            onValueChange(it)
+        },
         label = {
             Text(text = "username")
         }
@@ -82,13 +166,15 @@ fun AutofillUsername() {
 @Composable
 fun AutofillUsernamePreview() {
     CredentialManagerDemoAppTheme {
-        AutofillUsername()
+        AutofillUsername(onFocused = {}, onValueChange = {})
     }
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun AutofillPassword() {
+fun AutofillPassword(
+    onValueChange: (String) -> Unit
+) {
     var password by remember { mutableStateOf("") }
     val autoFillNode =
         AutofillNode(autofillTypes = listOf(AutofillType.Password), onFill = { password = it })
@@ -106,7 +192,10 @@ fun AutofillPassword() {
                 }
             },
         value = password,
-        onValueChange = { password = it },
+        onValueChange = {
+            password = it
+            onValueChange(it)
+        },
         label = {
             Text(text = "password")
         }
@@ -117,6 +206,6 @@ fun AutofillPassword() {
 @Composable
 fun AutofillPasswordPreview() {
     CredentialManagerDemoAppTheme {
-        AutofillPassword()
+        AutofillPassword(onValueChange = {})
     }
 }
